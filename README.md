@@ -17,7 +17,7 @@ Interactive API docs: `http://127.0.0.1:8000/docs`
 
 ## Contract
 
-See `docs/booking-model.md` for states, error codes, seed ids, and assumptions. See `docs/postgres.sql` for the database handoff.
+See `docs/booking-model.md` for states, error codes, seed ids, and assumptions. See `docs/isp-test-design.md` for the input partitions and the tests that represent them. See `docs/postgres.sql` for the database handoff.
 
 Decline a payment with token `fail`, `declined`, or `insufficient_funds`. Any other non-empty token succeeds.
 

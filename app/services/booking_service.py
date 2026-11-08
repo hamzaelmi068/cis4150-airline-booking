@@ -148,6 +148,8 @@ class BookingService:
                 booking_id=booking.id,
             )
             if not result.success:
+                # Save payment_failed and release the seat, then raise.
+                # The exception does not roll the failure back.
                 reason = result.reason or "declined"
                 failed = replace(
                     booking,
@@ -239,6 +241,7 @@ class BookingService:
     def _release_seat(self, booking: Booking) -> None:
         self._store.lock_seat(booking.seat_id)
         seat = self._store.get_seat(booking.seat_id)
+        # Skip the seat when another booking already owns it.
         if seat is None or seat.booking_id != booking.id:
             return
         self._store.save_seat(
