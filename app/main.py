@@ -7,18 +7,17 @@ from app.api.router import api_router
 from app.domain.clock import Clock, SystemClock
 from app.domain.errors import BookingError
 from app.repositories.base import BookingStore
-from app.repositories.memory import InMemoryBookingStore
 from app.repositories.postgres import PostgresBookingStore
 from app.services.booking_service import BookingService
 from app.services.payment import PaymentGateway, SimulatedPaymentGateway
 
+# Matches the db service in docker-compose.yml when the API runs on the host.
+DEFAULT_DATABASE_URL = "postgresql://booking:booking@localhost:5433/booking"
+
 
 def default_store() -> BookingStore:
-    """Use PostgreSQL when DATABASE_URL is set; otherwise the in-memory oracle."""
-    dsn = os.environ.get("DATABASE_URL")
-    if dsn:
-        return PostgresBookingStore.connect(dsn)
-    return InMemoryBookingStore.with_seed_data()
+    """Connect to PostgreSQL at DATABASE_URL, or the local Docker database."""
+    return PostgresBookingStore.connect(os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
 
 
 def create_app(
@@ -27,7 +26,10 @@ def create_app(
     payment_gateway: PaymentGateway | None = None,
     hold_minutes: int = 15,
 ) -> FastAPI:
-    """Build the API. Tests and the Postgres store inject dependencies here."""
+    """Build the API. Run with `uvicorn app.main:create_app --factory`.
+
+    Tests inject a store pointed at the test database.
+    """
     service = BookingService(
         store=store or default_store(),
         clock=clock or SystemClock(),
@@ -43,6 +45,3 @@ def create_app(
     app.include_router(api_router)
     app.add_exception_handler(BookingError, booking_error_handler)
     return app
-
-
-app = create_app()

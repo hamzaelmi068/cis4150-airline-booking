@@ -6,7 +6,10 @@ services:
       POSTGRES_PASSWORD: booking
       POSTGRES_DB: booking
     ports:
-      - "5432:5432"
+      - "5433:5432"
+    volumes:
+      # Named volume so bookings survive `docker compose down` / `up`.
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U booking -d booking"]
       interval: 5s
@@ -22,3 +25,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+volumes:
+  pgdata:
