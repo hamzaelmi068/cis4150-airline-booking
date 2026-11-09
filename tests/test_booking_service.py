@@ -15,7 +15,7 @@ from app.domain.errors import (
     SeatUnavailable,
 )
 from app.domain.models import Flight, Seat
-from app.repositories.memory import InMemoryBookingStore
+from app.repositories.base import BookingStore
 from app.services.booking_service import BookingService
 from app.services.payment import PaymentResult, SimulatedPaymentGateway
 from tests.conftest import START
@@ -23,7 +23,10 @@ from tests.conftest import START
 
 def test_seed_catalog_is_stable(service: BookingService) -> None:
     flights = service.list_flights()
-    assert [flight.id for flight in flights] == ["flt-100", "flt-200"]
+    ids = [flight.id for flight in flights]
+    assert "flt-100" in ids
+    assert "flt-200" in ids
+    assert "flt-300" in ids
     seats = service.list_seats("flt-100")
     assert [seat.id for seat in seats] == ["flt-100-1A", "flt-100-1B", "flt-100-1C"]
     assert all(seat.status == SeatStatus.AVAILABLE for seat in seats)
@@ -44,7 +47,7 @@ def test_seat_on_another_flight_is_not_found(service: BookingService) -> None:
     assert "not on flight" in caught.value.message
 
 
-def test_hold_confirm_and_block_second_reservation(service: BookingService, store: InMemoryBookingStore) -> None:
+def test_hold_confirm_and_block_second_reservation(service: BookingService, store: BookingStore) -> None:
     held = service.hold_seat("flt-100", "flt-100-1A", "  Ada   Lovelace ", "Ada@Example.com")
     assert held.status == BookingStatus.HELD
     assert held.passenger_name == "Ada Lovelace"
@@ -68,7 +71,7 @@ def test_hold_confirm_and_block_second_reservation(service: BookingService, stor
     assert other.status == BookingStatus.HELD
 
 
-def test_decline_tokens_release_the_seat(service: BookingService, store: InMemoryBookingStore) -> None:
+def test_decline_tokens_release_the_seat(service: BookingService, store: BookingStore) -> None:
     held = service.hold_seat("flt-100", "flt-100-1A", "Ada Lovelace", "ada@example.com")
     with pytest.raises(PaymentFailedError) as caught:
         service.confirm_booking(held.id, "FAIL")
@@ -86,10 +89,10 @@ def test_decline_tokens_release_the_seat(service: BookingService, store: InMemor
     assert again.id != held.id
 
 
-def test_non_positive_amount_is_a_payment_failure(clock) -> None:
+def test_non_positive_amount_is_a_payment_failure(clock, catalog_store) -> None:
     flight = Flight("flt-1", "T100", "YYZ", "YOW", START)
     seat = Seat("seat-1", "flt-1", "1A", "economy", 0, SeatStatus.AVAILABLE)
-    store = InMemoryBookingStore([flight], [seat])
+    store = catalog_store([flight], [seat])
     service = BookingService(store, clock, SimulatedPaymentGateway(), hold_minutes=15)
     held = service.hold_seat("flt-1", "seat-1", "Ada Lovelace", "ada@example.com")
     with pytest.raises(PaymentFailedError) as caught:
@@ -98,7 +101,7 @@ def test_non_positive_amount_is_a_payment_failure(clock) -> None:
     assert store.get_seat("seat-1").status == SeatStatus.AVAILABLE
 
 
-def test_blank_payment_token_does_not_change_the_hold(service: BookingService, store: InMemoryBookingStore) -> None:
+def test_blank_payment_token_does_not_change_the_hold(service: BookingService, store: BookingStore) -> None:
     held = service.hold_seat("flt-100", "flt-100-1A", "Ada Lovelace", "ada@example.com")
     with pytest.raises(InvalidRequest):
         service.confirm_booking(held.id, "   ")
@@ -106,7 +109,7 @@ def test_blank_payment_token_does_not_change_the_hold(service: BookingService, s
     assert store.get_seat("flt-100-1A").status == SeatStatus.HELD
 
 
-def test_expired_hold_is_not_charged(service: BookingService, store: InMemoryBookingStore, clock) -> None:
+def test_expired_hold_is_not_charged(service: BookingService, store: BookingStore, clock) -> None:
     class RecordingGateway(SimulatedPaymentGateway):
         def __init__(self) -> None:
             self.calls = 0
@@ -135,7 +138,7 @@ def test_hold_still_confirms_one_second_before_expiry(service: BookingService, c
     assert confirmed.status == BookingStatus.CONFIRMED
 
 
-def test_missing_expiry_is_treated_as_expired(service: BookingService, store: InMemoryBookingStore) -> None:
+def test_missing_expiry_is_treated_as_expired(service: BookingService, store: BookingStore) -> None:
     held = service.hold_seat("flt-100", "flt-100-1A", "Ada Lovelace", "ada@example.com")
     store.save_booking(replace(store.get_booking(held.id), expires_at=None))
     with pytest.raises(HoldExpired):
@@ -143,7 +146,7 @@ def test_missing_expiry_is_treated_as_expired(service: BookingService, store: In
     assert store.get_seat("flt-100-1A").status == SeatStatus.AVAILABLE
 
 
-def test_cancel_hold_and_confirmed_booking(service: BookingService, store: InMemoryBookingStore) -> None:
+def test_cancel_hold_and_confirmed_booking(service: BookingService, store: BookingStore) -> None:
     held = service.hold_seat("flt-100", "flt-100-1A", "Ada Lovelace", "ada@example.com")
     cancelled = service.cancel_booking(held.id)
     assert cancelled.status == BookingStatus.CANCELLED
@@ -175,7 +178,7 @@ def test_cancel_expired_or_failed_booking_is_rejected(service: BookingService, c
 
 def test_expiry_does_not_release_a_seat_owned_by_another_booking(
     service: BookingService,
-    store: InMemoryBookingStore,
+    store: BookingStore,
     clock,
 ) -> None:
     held = service.hold_seat("flt-100", "flt-100-1A", "Ada Lovelace", "ada@example.com")
@@ -203,7 +206,7 @@ def test_get_booking_expires_lazily(service: BookingService, clock) -> None:
 
 def test_confirm_rejects_a_seat_that_no_longer_matches_the_hold(
     service: BookingService,
-    store: InMemoryBookingStore,
+    store: BookingStore,
 ) -> None:
     held = service.hold_seat("flt-100", "flt-100-1A", "Ada Lovelace", "ada@example.com")
     store.save_seat(replace(store.get_seat(held.seat_id), status=SeatStatus.BOOKED, booking_id="other"))
@@ -235,7 +238,7 @@ def test_duplicate_passenger_wins_over_unavailable_seat(service: BookingService)
         service.hold_seat("flt-100", "flt-100-1A", "Ada Lovelace", "ADA@example.com")
 
 
-def test_store_returns_copies_and_releases_the_lock(store: InMemoryBookingStore) -> None:
+def test_store_returns_copies_and_releases_the_lock(store: BookingStore) -> None:
     original = store.get_seat("flt-100-1A")
     store.save_seat(replace(original, status=SeatStatus.BOOKED, booking_id="x"))
     assert original.status == SeatStatus.AVAILABLE

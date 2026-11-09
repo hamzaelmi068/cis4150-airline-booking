@@ -2,7 +2,7 @@
 -- Wire it in with create_app(store=your_store). Do not change BookingService
 -- to talk to SQL directly.
 
-CREATE TABLE flights (
+CREATE TABLE IF NOT EXISTS flights (
     id TEXT PRIMARY KEY,
     flight_number TEXT NOT NULL,
     origin TEXT NOT NULL,
@@ -10,7 +10,7 @@ CREATE TABLE flights (
     departure_time TIMESTAMPTZ NOT NULL
 );
 
-CREATE TABLE seats (
+CREATE TABLE IF NOT EXISTS seats (
     id TEXT PRIMARY KEY,
     flight_id TEXT NOT NULL REFERENCES flights (id),
     seat_number TEXT NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE seats (
     UNIQUE (flight_id, seat_number)
 );
 
-CREATE TABLE bookings (
+CREATE TABLE IF NOT EXISTS bookings (
     id TEXT PRIMARY KEY,
     flight_id TEXT NOT NULL REFERENCES flights (id),
     seat_id TEXT NOT NULL REFERENCES seats (id),
@@ -43,7 +43,7 @@ CREATE TABLE bookings (
 -- Service code expires old holds before inserting a new one, in the same
 -- transaction. This index then rejects a second active row if two
 -- transactions race on different seats for one passenger.
-CREATE UNIQUE INDEX one_active_reservation_per_passenger
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_reservation_per_passenger
     ON bookings (flight_id, passenger_email)
     WHERE status IN ('held', 'confirmed');
 

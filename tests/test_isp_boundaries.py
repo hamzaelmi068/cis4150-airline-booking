@@ -8,13 +8,13 @@ import pytest
 from app.domain.enums import BookingStatus, SeatStatus
 from app.domain.errors import FlightNotFound, InvalidRequest
 from app.domain.validation import MAX_NAME_LENGTH
-from app.repositories.memory import InMemoryBookingStore
+from app.repositories.base import BookingStore
 from app.services.booking_service import BookingService
 
 
 def test_passenger_name_accepts_80_and_rejects_81(
     service: BookingService,
-    store: InMemoryBookingStore,
+    store: BookingStore,
 ) -> None:
     accepted = "A" * MAX_NAME_LENGTH
     held = service.hold_seat(
@@ -40,7 +40,7 @@ def test_passenger_name_accepts_80_and_rejects_81(
 
 def test_hold_unknown_flight_does_not_reserve_a_seat(
     service: BookingService,
-    store: InMemoryBookingStore,
+    store: BookingStore,
 ) -> None:
     with pytest.raises(FlightNotFound):
         service.hold_seat("missing", "flt-100-1A", "Ada Lovelace", "ada@example.com")
@@ -48,7 +48,7 @@ def test_hold_unknown_flight_does_not_reserve_a_seat(
     assert store.list_bookings() == []
 
 
-def test_blank_seat_id_is_rejected(service: BookingService, store: InMemoryBookingStore) -> None:
+def test_blank_seat_id_is_rejected(service: BookingService, store: BookingStore) -> None:
     with pytest.raises(InvalidRequest):
         service.hold_seat("flt-100", "   ", "Ada Lovelace", "ada@example.com")
     assert store.list_bookings() == []
@@ -56,7 +56,7 @@ def test_blank_seat_id_is_rejected(service: BookingService, store: InMemoryBooki
 
 def test_blank_payment_token_does_not_expire_elapsed_hold(
     service: BookingService,
-    store: InMemoryBookingStore,
+    store: BookingStore,
     clock,
 ) -> None:
     held = service.hold_seat("flt-100", "flt-100-1A", "Ada Lovelace", "ada@example.com")
@@ -69,7 +69,7 @@ def test_blank_payment_token_does_not_expire_elapsed_hold(
 
 def test_invalid_passenger_name_does_not_expire_elapsed_hold(
     service: BookingService,
-    store: InMemoryBookingStore,
+    store: BookingStore,
     clock,
 ) -> None:
     held = service.hold_seat("flt-100", "flt-100-1A", "Ada Lovelace", "ada@example.com")

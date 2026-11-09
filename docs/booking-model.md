@@ -64,15 +64,17 @@ stateDiagram-v2
 
 Error JSON is `{"error": "<code>", "detail": "<message>"}`. Payment and hold-expiry errors also include `booking_id`.
 
-Stable seed ids:
+Stable seed ids used by tests:
 
 - `flt-100` / `AC101` / YYZ-YVR, seats `flt-100-1A`, `flt-100-1B`, `flt-100-1C`
 - `flt-200` / `AC202` / YYZ-YUL, seats `flt-200-1A`, `flt-200-1B`
+
+Extra mock flights (`flt-300` through `flt-800`) live in `docs/seed.sql`. Postgres loads that file. There is no live airline feed and no hardcoded catalog list in Python.
 
 ## Where teammates attach work
 
 - Graph and logic coverage: `app/domain/rules.py` and `app/services/booking_service.py`.
 - Defect injection: replace `SimulatedPaymentGateway` or pass another `PaymentGateway` into `create_app`.
-- PostgreSQL: implement `BookingStore` in `app/repositories/base.py`, then pass it to `create_app(store=...)`. Schema: `docs/postgres.sql`.
+- PostgreSQL: `PostgresBookingStore` in `app/repositories/postgres.py` implements `BookingStore`. Pass it to `create_app(store=...)` or set `DATABASE_URL`. Schema: `docs/postgres.sql`. Catalog: `docs/seed.sql`.
 - Concurrency: `tests/test_concurrency.py` shows the outcomes the store must preserve.
 - ISP characteristics worth partitioning: flight id, seat id, seat status, passenger email, passenger name, payment token, booking status, and the expiry boundary `now < expires_at` versus `now >= expires_at`.

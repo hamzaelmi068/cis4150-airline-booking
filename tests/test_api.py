@@ -3,14 +3,18 @@ from datetime import timedelta
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.repositories.base import BookingStore
 
 
-def test_health_flights_and_seat_filter(clock) -> None:
-    with TestClient(create_app(clock=clock)) as client:
+def test_health_flights_and_seat_filter(clock, store: BookingStore) -> None:
+    with TestClient(create_app(store=store, clock=clock)) as client:
         assert client.get("/health").json() == {"status": "ok"}
         flights = client.get("/flights")
         assert flights.status_code == 200
-        assert [flight["id"] for flight in flights.json()] == ["flt-100", "flt-200"]
+        flight_ids = [flight["id"] for flight in flights.json()]
+        assert "flt-100" in flight_ids
+        assert "flt-200" in flight_ids
+        assert "flt-800" in flight_ids
         missing = client.get("/flights/nope")
         assert missing.status_code == 404
         assert missing.json()["error"] == "flight_not_found"
@@ -20,8 +24,8 @@ def test_health_flights_and_seat_filter(clock) -> None:
         assert invalid.status_code == 422
 
 
-def test_http_booking_flow(clock) -> None:
-    with TestClient(create_app(clock=clock, hold_minutes=15)) as client:
+def test_http_booking_flow(clock, store: BookingStore) -> None:
+    with TestClient(create_app(store=store, clock=clock, hold_minutes=15)) as client:
         rejected = client.post(
             "/bookings/holds",
             json={
@@ -92,8 +96,8 @@ def test_http_booking_flow(clock) -> None:
         assert seat["status"] == "available"
 
 
-def test_get_booking_reports_expiry(clock) -> None:
-    app = create_app(clock=clock, hold_minutes=15)
+def test_get_booking_reports_expiry(clock, store: BookingStore) -> None:
+    app = create_app(store=store, clock=clock, hold_minutes=15)
     with TestClient(app) as client:
         created = client.post(
             "/bookings/holds",
@@ -116,8 +120,8 @@ def test_get_booking_reports_expiry(clock) -> None:
         assert seat["status"] == "available"
 
 
-def test_duplicate_reservation_http_code(clock) -> None:
-    with TestClient(create_app(clock=clock)) as client:
+def test_duplicate_reservation_http_code(clock, store: BookingStore) -> None:
+    with TestClient(create_app(store=store, clock=clock)) as client:
         payload = {
             "flight_id": "flt-100",
             "seat_id": "flt-100-1A",
@@ -134,8 +138,8 @@ def test_duplicate_reservation_http_code(clock) -> None:
         assert missing.json()["error"] == "booking_not_found"
 
 
-def test_hold_duration_is_visible(clock) -> None:
-    with TestClient(create_app(clock=clock, hold_minutes=15)) as client:
+def test_hold_duration_is_visible(clock, store: BookingStore) -> None:
+    with TestClient(create_app(store=store, clock=clock, hold_minutes=15)) as client:
         response = client.post(
             "/bookings/holds",
             json={

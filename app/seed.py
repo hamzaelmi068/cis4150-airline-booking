@@ -1,42 +1,77 @@
+"""Load static catalog from docs/seed.sql. Do not keep flight rows in Python."""
+
+from __future__ import annotations
+
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.domain.enums import SeatStatus
 from app.domain.models import Flight, Seat
 
+DOCS = Path(__file__).resolve().parents[1] / "docs"
+SCHEMA_PATH = DOCS / "postgres.sql"
+SEED_PATH = DOCS / "seed.sql"
+
+_FLIGHT_ROW = re.compile(
+    r"INSERT INTO flights \([^)]+\) VALUES\s*\(\s*"
+    r"'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)'\s*\)",
+    re.IGNORECASE,
+)
+_SEAT_ROW = re.compile(
+    r"INSERT INTO seats \([^)]+\) VALUES\s*\(\s*"
+    r"'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*(\d+),\s*'([^']+)',\s*(NULL|'[^']*')\s*\)",
+    re.IGNORECASE,
+)
+
+
+def sql_statements(path: Path) -> list[str]:
+    """Split a SQL file into statements, ignoring `--` comments."""
+    statements: list[str] = []
+    buffer: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("--"):
+            continue
+        buffer.append(raw_line)
+        if stripped.endswith(";"):
+            statements.append("\n".join(buffer).strip())
+            buffer = []
+    return statements
+
 
 def seed_catalog() -> tuple[list[Flight], list[Seat]]:
-    """Small fixed catalog so tests and teammates share the same ids."""
+    """In-memory oracle reads the same SQL file Postgres executes."""
+    sql = SEED_PATH.read_text(encoding="utf-8")
     flights = [
         Flight(
-            id="flt-100",
-            flight_number="AC101",
-            origin="YYZ",
-            destination="YVR",
-            departure_time=datetime(2026, 12, 1, 15, 0, tzinfo=timezone.utc),
-        ),
-        Flight(
-            id="flt-200",
-            flight_number="AC202",
-            origin="YYZ",
-            destination="YUL",
-            departure_time=datetime(2026, 12, 2, 9, 30, tzinfo=timezone.utc),
-        ),
+            id=match.group(1),
+            flight_number=match.group(2),
+            origin=match.group(3),
+            destination=match.group(4),
+            departure_time=_timestamp(match.group(5)),
+        )
+        for match in _FLIGHT_ROW.finditer(sql)
     ]
-    seat_plan = (
-        ("flt-100", (("1A", 25000), ("1B", 25000), ("1C", 18000))),
-        ("flt-200", (("1A", 15000), ("1B", 15000))),
-    )
-    seats: list[Seat] = []
-    for flight_id, rows in seat_plan:
-        for seat_number, price_cents in rows:
-            seats.append(
-                Seat(
-                    id=f"{flight_id}-{seat_number}",
-                    flight_id=flight_id,
-                    seat_number=seat_number,
-                    cabin="economy",
-                    price_cents=price_cents,
-                    status=SeatStatus.AVAILABLE,
-                )
-            )
+    seats = [
+        Seat(
+            id=match.group(1),
+            flight_id=match.group(2),
+            seat_number=match.group(3),
+            cabin=match.group(4),
+            price_cents=int(match.group(5)),
+            status=SeatStatus(match.group(6)),
+            booking_id=None if match.group(7) == "NULL" else match.group(7).strip("'"),
+        )
+        for match in _SEAT_ROW.finditer(sql)
+    ]
+    if not flights or not seats:
+        raise ValueError(f"no catalog rows parsed from {SEED_PATH}")
     return flights, seats
+
+
+def _timestamp(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace(" ", "T"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
