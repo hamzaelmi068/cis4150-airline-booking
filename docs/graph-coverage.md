@@ -54,3 +54,17 @@ booking status and the seat status after the transition.
   so E6 advances exactly 15 minutes.
 - Payment is simulated. The tokens `fail`, `declined` and `insufficient_funds`
   are declined; any other non-empty token succeeds.
+
+## Illegal transitions
+
+Edges that must not exist. For every state, both actions that move a booking
+(`confirm_booking` and `cancel_booking`) were tried. Seven combinations must be
+rejected. Each test reaches the state, attempts the action, expects the error,
+and then checks that neither the booking nor the seat changed.
+
+| From state | `confirm_booking` | `cancel_booking` |
+| --- | --- | --- |
+| CONFIRMED | `InvalidTransition`: `test_illegal_confirm_confirmed_booking` | allowed (E5) |
+| CANCELLED | `InvalidTransition`: `test_illegal_confirm_cancelled_booking` | `InvalidTransition`: `test_illegal_cancel_cancelled_booking` |
+| PAYMENT_FAILED | `InvalidTransition`: `test_illegal_confirm_payment_failed_booking` | `InvalidTransition`: `test_illegal_cancel_payment_failed_booking` |
+| EXPIRED | `HoldExpired`: `test_illegal_confirm_expired_booking` | `HoldExpired`: `test_illegal_cancel_expired_booking` |
