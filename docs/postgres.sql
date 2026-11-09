@@ -1,4 +1,4 @@
--- PostgreSQL shape for a BookingStore that matches the in-memory oracle.
+-- PostgreSQL schema for PostgresBookingStore.
 -- Wire it in with create_app(store=your_store). Do not change BookingService
 -- to talk to SQL directly.
 

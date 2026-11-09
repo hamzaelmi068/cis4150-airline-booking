@@ -1,7 +1,6 @@
-"""Persistence adapters. The in-memory store is the reference behavior."""
+"""Persistence adapters. PostgreSQL is the only store."""
 
 from app.repositories.base import BookingStore
-from app.repositories.memory import InMemoryBookingStore
 from app.repositories.postgres import PostgresBookingStore
 
-__all__ = ["BookingStore", "InMemoryBookingStore", "PostgresBookingStore"]
+__all__ = ["BookingStore", "PostgresBookingStore"]

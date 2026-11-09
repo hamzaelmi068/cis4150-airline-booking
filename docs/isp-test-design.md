@@ -94,5 +94,5 @@ Concurrency is covered by `tests/test_concurrency.py`, but it is not part of thi
 - Decline tokens are `fail`, `declined`, and `insufficient_funds`. Any other non-empty token succeeds. Nothing is sent to a payment provider.
 - A declined charge is stored before `PaymentFailedError` is raised. The seat is released as part of that save.
 - Invalid passenger input and a blank payment token return before `_expire_elapsed`, so they do not turn a due hold into `expired`.
-- The in-memory store is the system these tests run against. They do not show PostgreSQL transaction behavior.
+- These tests run against PostgreSQL (the `booking_test` database), reset to `docs/seed.sql` before each test.
 - Statement coverage from pytest-cov is a separate measurement. It does not mean the partitions above are complete. The uncovered rows in the previous section are still uncovered if the coverage percentage is high.

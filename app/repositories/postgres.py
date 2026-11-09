@@ -1,4 +1,4 @@
-"""PostgreSQL BookingStore. Matches the in-memory oracle used by tests."""
+"""PostgreSQL BookingStore. The app and the test suite both run on it."""
 
 from __future__ import annotations
 
@@ -19,11 +19,19 @@ from app.domain.errors import BookingError, DuplicateReservation
 from app.domain.models import Booking, Flight, Seat
 from app.seed import SCHEMA_PATH, SEED_PATH, sql_statements
 
+# Name of the partial unique index in docs/postgres.sql. When Postgres rejects
+# an insert because of this index, we turn it into DuplicateReservation.
 ACTIVE_RESERVATION_INDEX = "one_active_reservation_per_passenger"
 T = TypeVar("T")
 
 
+# --- Row -> domain object converters ---------------------------------------
+# Every read builds a brand-new dataclass from the row, so callers get a copy.
+# Changing that copy does nothing until they call save_seat / save_booking.
+
+
 def _utc(value: datetime | None) -> datetime | None:
+    """Make sure timestamps coming back from Postgres are timezone-aware UTC."""
     if value is None:
         return None
     if value.tzinfo is None:
@@ -78,9 +86,11 @@ def _booking(row: dict) -> Booking:
 
 @dataclass
 class _TxState:
-    conn: psycopg.Connection
-    depth: int = 0
-    aborted: bool = False
+    """The open transaction for the current thread."""
+
+    conn: psycopg.Connection  # one pooled connection used for the whole service call
+    depth: int = 0  # how many nested transaction() blocks are open
+    aborted: bool = False  # set when Postgres aborted the tx; we must roll back, not commit
 
 
 class PostgresBookingStore:
@@ -88,13 +98,16 @@ class PostgresBookingStore:
 
     ``transaction()`` holds one connection for the whole service call.
     Domain errors such as ``PaymentFailedError`` commit, because the
-    in-memory store keeps those writes. A unique-index violation aborts
+    service saves those writes before raising. A unique-index violation aborts
     the transaction and becomes ``DuplicateReservation``.
     """
 
     def __init__(self, dsn: str, pool: ConnectionPool) -> None:
         self._dsn = dsn
         self._pool = pool
+        # Each thread (each HTTP request, or each worker in the concurrency
+        # tests) gets its own transaction state, so threads never share a
+        # connection mid-transaction.
         self._local = threading.local()
 
     @classmethod
@@ -111,6 +124,8 @@ class PostgresBookingStore:
                 "options": "-c timezone=UTC",
             },
         )
+        # Fail at startup (after 30s) instead of on the first request if the
+        # database is unreachable.
         pool.wait(timeout=30.0)
         store = cls(dsn, pool)
         store.ensure_ready()
@@ -142,6 +157,8 @@ class PostgresBookingStore:
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
+        # Nested calls reuse the outer transaction. Only the outermost block
+        # ("owns") commits/rolls back and returns the connection to the pool.
         state = getattr(self._local, "state", None)
         if state is None:
             state = _TxState(conn=self._pool.getconn())
@@ -155,10 +172,13 @@ class PostgresBookingStore:
             if owns:
                 self._finish_tx(state, commit=not state.aborted)
         except BookingError:
+            # Business errors (e.g. payment declined) still commit: the service
+            # saved the payment_failed booking and released the seat on purpose.
             if owns:
                 self._finish_tx(state, commit=not state.aborted)
             raise
         except Exception:
+            # Anything unexpected: undo every write in this service call.
             if owns:
                 self._finish_tx(state, commit=False)
             raise
@@ -174,6 +194,8 @@ class PostgresBookingStore:
             raise RuntimeError("lock_seat must be called inside transaction()")
         if not isinstance(seat_id, str):
             raise RuntimeError("seat_id must be a string")
+        # Row lock held until commit/rollback. A second transaction locking the
+        # same seat waits here, so two holds on one seat can't both succeed.
         state.conn.execute("SELECT id FROM seats WHERE id = %s FOR UPDATE", (seat_id,))
 
     def list_flights(self) -> list[Flight]:
@@ -208,6 +230,7 @@ class PostgresBookingStore:
         return _seat(row) if row else None
 
     def save_seat(self, seat: Seat) -> None:
+        # Upsert: insert a new seat or overwrite the existing row with the same id.
         self._execute(
             """
             INSERT INTO seats (id, flight_id, seat_number, cabin, price_cents, status, booking_id)
@@ -284,6 +307,9 @@ class PostgresBookingStore:
                 ),
             )
         except UniqueViolation as exc:
+            # Two transactions raced to give one passenger two active bookings
+            # on the same flight. Postgres has already aborted this tx, so mark
+            # it for rollback and report a domain error instead of a DB error.
             state = getattr(self._local, "state", None)
             if state is not None:
                 state.aborted = True
@@ -327,6 +353,8 @@ class PostgresBookingStore:
         state.aborted = False
 
     def _run(self, fn: Callable[[psycopg.Connection], T]) -> T:
+        # Inside transaction(): use that connection. Outside: borrow one for
+        # this single statement (the pool commits it when returned).
         state = self._tx()
         if state is not None:
             return fn(state.conn)

@@ -9,9 +9,9 @@ class BookingStore(Protocol):
 
     ``transaction()`` must make the whole service call atomic.
     ``lock_seat()`` must block other transactions from mutating that seat
-    until the transaction ends. The in-memory store does this with one
-    process-wide lock. PostgreSQL should ``SELECT ... FOR UPDATE`` the seat
-    and use the partial unique index in ``docs/postgres.sql``.
+    until the transaction ends. ``PostgresBookingStore`` does this with
+    ``SELECT ... FOR UPDATE`` and the partial unique index in
+    ``docs/postgres.sql``.
     """
 
     def transaction(self) -> AbstractContextManager[None]:

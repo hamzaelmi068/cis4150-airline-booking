@@ -21,7 +21,7 @@ This file is the behavioral contract for the backend. It is not the course repor
 - When a passenger already has an active reservation, a new hold returns `duplicate_reservation` even if the seat is also unavailable.
 - Seat release changes a seat only when `seat.booking_id` is still this booking. A seat owned by another booking is left alone.
 - All timestamps are timezone-aware UTC.
-- The in-memory store is the reference behavior. PostgreSQL must match it.
+- PostgreSQL is the only store. The app and the tests both run on it.
 
 ## Booking states
 
